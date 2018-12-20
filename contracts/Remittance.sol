@@ -1,61 +1,13 @@
 pragma solidity 0.5;
 
-contract Owned {
-    address private owner;
-
-    event LogOwnerChanged(address indexed previousOwner, address newOwner);
-
-    constructor() public {
-        owner = msg.sender;
-    }
-
-    function getOwner() public view returns(address) {
-        return owner;
-    }
-
-    function changeOwner(address newOwner) public {
-        require(msg.sender == owner, "Must be contract owner");
-        emit LogOwnerChanged(owner, newOwner);
-        owner = newOwner;
-    }
-
-    modifier onlyOwner() {
-        require(msg.sender == owner, "Must be contract owner");
-        _;
-    }
-}
-
-contract Pausable is Owned {
-    bool private isRunning;
-
-    event LogContractPaused(address sender);
-    event LogContractResumed(address sender);
-
-    constructor() public {
-        isRunning = true;
-    }
-
-    modifier onlyIfRunning() {
-        require(isRunning, "Contract must be running");
-        _;
-    }
-
-    function pauseContract() public onlyOwner {
-        isRunning = false;
-        emit LogContractPaused(msg.sender);
-    }
-
-    function resumeContract() public onlyOwner {
-        isRunning = true;
-        emit LogContractResumed(msg.sender);
-    }
-}
+import "./Pausable.sol";
 
 contract Remittance is Pausable {
     uint private bobBalance;
+    address private exchanger;
     bytes32 private passHash;
 
-    event LogDeposit(address sender, uint amount, address recipient, bytes32 passHash1);
+    event LogDeposit(address sender, uint amount, address recipient, address exchanger, bytes32 passwordHash);
     event LogWithdrawal(address recipient, address exchanger, uint amount);
 
     constructor() public {
@@ -65,30 +17,32 @@ contract Remittance is Pausable {
         return keccak256(abi.encodePacked(pass1, pass2));
     }
 
-    // Hash matching function allows password parameters to be passed in either order
-    function doHashesMatch(bytes32 pass1, bytes32 pass2, bytes32 _passHash) private pure returns (bool matches) {
-        return (_passHash == createHash(pass1, pass2) ||
-            _passHash == createHash(pass2, pass1));
+    function doHashesMatch(bytes32 recipientPass, bytes32 exchangerPass, bytes32 _passHash) private pure returns (bool matches) {
+        return (_passHash == createHash(recipientPass, exchangerPass));
     }
 
-    function deposit(address recipient, bytes32 password1, bytes32 password2) 
+    function deposit(address _recipient, address _exchanger, bytes32 hashOfTwoPasswords) 
         public 
         onlyOwner // remove for utility
         payable {
 
         require(msg.value > 0, "Must include value to transfer");
+        require(_recipient != address(0), "Recipient address is missing");
+        require(_exchanger != address(0), "Exchanger address is missing");
         
+        exchanger = _exchanger;
         bobBalance = msg.value;
-        passHash = createHash(password1, password2);
-        emit LogDeposit(msg.sender, msg.value, recipient, passHash);
+        passHash = hashOfTwoPasswords;
+        emit LogDeposit(msg.sender, msg.value, _recipient, _exchanger, passHash);
     }
 
     function withdraw(address recipient, bytes32 password1, bytes32 password2) public {
+        require (msg.sender == exchanger, "Transaction sender is not the specified exchanger");
         require (doHashesMatch(password1, password2, passHash), "Passwords do not match");
         
         uint amount = bobBalance;
         bobBalance = 0;
-        msg.sender.transfer(amount);
         emit LogWithdrawal(recipient, msg.sender, amount);
+        msg.sender.transfer(amount);
     }
 }
