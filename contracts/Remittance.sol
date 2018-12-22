@@ -3,45 +3,44 @@ pragma solidity 0.5;
 import "./Pausable.sol";
 
 contract Remittance is Pausable {
-    uint private bobBalance;
-    address private exchanger;
-    bytes32 private passHash;
+    struct Payment {
+        uint balance;
+        address exchanger;
+        bool used;
+    }
+    mapping(bytes32 => Payment) paymentList;
 
-    event LogDeposit(address sender, uint amount, address recipient, address exchanger, bytes32 passwordHash);
+    event LogDeposit(address sender, uint amount, address exchanger, bytes32 passwordHash);
     event LogWithdrawal(address recipient, address exchanger, uint amount);
 
     constructor() public {
     }
 
-    function createHash(bytes32 pass1, bytes32 pass2) private pure returns (bytes32 _passHash) {
-        return keccak256(abi.encodePacked(pass1, pass2));
+    function createHash(bytes32 password, address recipient) public pure returns (bytes32 _passHash) {
+        return keccak256(abi.encodePacked(password, recipient));
     }
 
-    function doHashesMatch(bytes32 recipientPass, bytes32 exchangerPass, bytes32 _passHash) private pure returns (bool matches) {
-        return (_passHash == createHash(recipientPass, exchangerPass));
-    }
-
-    function deposit(address _recipient, address _exchanger, bytes32 hashOfTwoPasswords) 
-        public 
-        onlyOwner // remove for utility
+    function deposit(address _exchanger, bytes32 hashOfPasswordAndRecipient) 
+        public
         payable {
 
         require(msg.value > 0, "Must include value to transfer");
-        require(_recipient != address(0), "Recipient address is missing");
         require(_exchanger != address(0), "Exchanger address is missing");
+        require(!paymentList[hashOfPasswordAndRecipient].used, "This hash has already been used");
         
-        exchanger = _exchanger;
-        bobBalance = msg.value;
-        passHash = hashOfTwoPasswords;
-        emit LogDeposit(msg.sender, msg.value, _recipient, _exchanger, passHash);
+        paymentList[hashOfPasswordAndRecipient].exchanger = _exchanger;
+        paymentList[hashOfPasswordAndRecipient].balance = msg.value;
+        paymentList[hashOfPasswordAndRecipient].used = true; // this hash can't be used again
+        emit LogDeposit(msg.sender, msg.value, _exchanger, hashOfPasswordAndRecipient);
     }
 
-    function withdraw(address recipient, bytes32 password1, bytes32 password2) public {
-        require (msg.sender == exchanger, "Transaction sender is not the specified exchanger");
-        require (doHashesMatch(password1, password2, passHash), "Passwords do not match");
+    function withdraw(bytes32 password, address recipient) public {
+        bytes32 passHash = createHash(password, recipient);
+        require (paymentList[passHash].balance > 0, "No balance found for this recipient and password");
+        require (paymentList[passHash].exchanger == msg.sender, "Transaction sender is not the specified exchanger");
         
-        uint amount = bobBalance;
-        bobBalance = 0;
+        uint amount = paymentList[passHash].balance;
+        paymentList[passHash].balance = 0;
         emit LogWithdrawal(recipient, msg.sender, amount);
         msg.sender.transfer(amount);
     }
