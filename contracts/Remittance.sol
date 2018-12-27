@@ -12,18 +12,28 @@ contract Remittance is Pausable {
     }
     mapping(bytes32 => Payment) paymentList;
     uint public maxDeadlineDays; // if this value is 0, deadline cannot be set by payer
+    uint public transactionFee;
+    uint public contractBalance;
 
     event LogMaxDeadlineChanged(address indexed changer, uint newMaxDeadlineDays);
+    event LogTransactionFeeChanged(address indexed changer, uint newTransactionFee);
+    event LogWithdrawContractFunds(address indexed admin, uint amount);
     event LogDeposit(address indexed sender, uint amount, address exchanger, bytes32 passwordHash);
-    event LogWithdrawal(address indexed recipient, address indexed exchanger, bytes32 password, uint amount);
+    event LogWithdrawal(address indexed recipient, address indexed exchanger, bytes32 password, uint amount, uint transactionFee);
     event LogClaimed(address indexed claimer, bytes32 passwordHash, uint amount);
 
     constructor() public {
+        transactionFee = 3 finney; // 1,690,000 (gas) * 2 (gas price) = 3,380,000 gwe = 3.38 finney to deploy contract
     }
 
     function setMaxDeadline(uint _maxDeadlineDays) public onlyOwner {
         maxDeadlineDays = _maxDeadlineDays;
         emit LogMaxDeadlineChanged(msg.sender, _maxDeadlineDays);
+    }
+
+    function setTransactionFee(uint _transactionFee) public onlyOwner {
+        transactionFee = _transactionFee;
+        emit LogTransactionFeeChanged(msg.sender, _transactionFee);
     }
 
     function getDeadlineTimestamp(uint _days) private view returns(uint timestamp) {
@@ -58,8 +68,14 @@ contract Remittance is Pausable {
         require (paymentList[passHash].exchanger == msg.sender, "Transaction sender is not the specified exchanger");
         
         uint amount = paymentList[passHash].balance;
+        // take tx fee on withdrawal, unless amount is smaller than tx fee
+        uint withdrawTxFee = (amount > transactionFee) ? transactionFee : 0;
+        amount -= withdrawTxFee;
+        contractBalance += withdrawTxFee;
+        assert(contractBalance >= withdrawTxFee); // make sure contractBalance doesn't overflow
+
         paymentList[passHash].balance = 0;
-        emit LogWithdrawal(recipient, msg.sender, password, amount);
+        emit LogWithdrawal(recipient, msg.sender, password, amount, withdrawTxFee);
         msg.sender.transfer(amount);
     }
 
@@ -73,5 +89,12 @@ contract Remittance is Pausable {
         paymentList[_hash].balance = 0;
         emit LogClaimed(msg.sender, _hash, amount);
         msg.sender.transfer(amount);
+    }
+
+    function withdrawContractFunds() public onlyOwner {
+        uint amount = contractBalance;
+        contractBalance = 0;
+        msg.sender.transfer(amount);
+        emit LogWithdrawContractFunds(msg.sender, amount);
     }
 }
