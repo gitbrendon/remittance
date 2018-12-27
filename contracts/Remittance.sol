@@ -48,6 +48,7 @@ contract Remittance is Pausable {
 
     function deposit(address _exchanger, bytes32 hashOfPasswordAndRecipient, uint daysUntilDeadline) 
         public
+        onlyIfRunning
         payable {
 
         require(msg.value > 0, "Must include value to transfer");
@@ -62,7 +63,7 @@ contract Remittance is Pausable {
         emit LogDeposit(msg.sender, msg.value, _exchanger, hashOfPasswordAndRecipient);
     }
 
-    function withdraw(bytes32 password, address recipient) public {
+    function withdraw(bytes32 password, address recipient) public onlyIfRunning {
         bytes32 passHash = createHash(password, recipient);
         require (paymentList[passHash].balance > 0, "No balance found for this recipient and password");
         require (paymentList[passHash].exchanger == msg.sender, "Transaction sender is not the specified exchanger");
@@ -79,7 +80,7 @@ contract Remittance is Pausable {
         msg.sender.transfer(amount);
     }
 
-    function claim(bytes32 _hash) public {
+    function claim(bytes32 _hash) public onlyIfRunning {
         require(paymentList[_hash].balance > 0, "No balance found for this recipient and password");
         require(paymentList[_hash].payer == msg.sender, "Only payment sender can claim funds");
         require(paymentList[_hash].deadline > 0, "This payment does not have a deadline for recipient to withdraw funds");
