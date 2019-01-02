@@ -93,7 +93,7 @@ contract Remittance is Pausable {
     function withdrawContractFunds() public onlyOwner {
         uint amount = contractBalance;
         contractBalance = 0;
-        msg.sender.transfer(amount);
         emit LogWithdrawContractFunds(msg.sender, amount);
+        msg.sender.transfer(amount);
     }
 }
