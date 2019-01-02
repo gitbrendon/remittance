@@ -8,7 +8,6 @@ contract Remittance is Pausable {
         address payer; 
         address exchanger;
         uint deadline;
-        bool used;
     }
     mapping(bytes32 => Payment) paymentList;
     uint public maxDeadlineSeconds; // if this value is 0, deadline cannot be set by payer
@@ -53,13 +52,12 @@ contract Remittance is Pausable {
 
         require(msg.value > 0, "Must include value to transfer");
         require(_exchanger != address(0), "Exchanger address is missing");
-        require(!paymentList[hashOfPasswordAndRecipient].used, "This hash has already been used");
+        require(paymentList[hashOfPasswordAndRecipient].exchanger == address(0), "This hash has already been used");
         
         paymentList[hashOfPasswordAndRecipient].payer = msg.sender;
         paymentList[hashOfPasswordAndRecipient].exchanger = _exchanger;
         paymentList[hashOfPasswordAndRecipient].balance = msg.value;
         paymentList[hashOfPasswordAndRecipient].deadline = getDeadlineTimestamp(secondsUntilDeadline);
-        paymentList[hashOfPasswordAndRecipient].used = true; // this hash can't be used again
         emit LogDeposit(msg.sender, msg.value, _exchanger, hashOfPasswordAndRecipient);
     }
 
