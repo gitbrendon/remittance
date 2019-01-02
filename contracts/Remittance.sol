@@ -11,11 +11,11 @@ contract Remittance is Pausable {
         bool used;
     }
     mapping(bytes32 => Payment) paymentList;
-    uint public maxDeadlineDays; // if this value is 0, deadline cannot be set by payer
+    uint public maxDeadlineSeconds; // if this value is 0, deadline cannot be set by payer
     uint public transactionFee;
     uint public contractBalance;
 
-    event LogMaxDeadlineChanged(address indexed changer, uint newMaxDeadlineDays);
+    event LogMaxDeadlineChanged(address indexed changer, uint newMaxDeadlineSeconds);
     event LogTransactionFeeChanged(address indexed changer, uint newTransactionFee);
     event LogWithdrawContractFunds(address indexed admin, uint amount);
     event LogDeposit(address indexed sender, uint amount, address exchanger, bytes32 passwordHash);
@@ -26,9 +26,9 @@ contract Remittance is Pausable {
         transactionFee = 3 finney; // 1,690,000 (gas) * 2 (gas price) = 3,380,000 gwe = 3.38 finney to deploy contract
     }
 
-    function setMaxDeadline(uint _maxDeadlineDays) public onlyOwner {
-        maxDeadlineDays = _maxDeadlineDays;
-        emit LogMaxDeadlineChanged(msg.sender, _maxDeadlineDays);
+    function setMaxDeadline(uint _maxDeadlineSeconds) public onlyOwner {
+        maxDeadlineSeconds = _maxDeadlineSeconds;
+        emit LogMaxDeadlineChanged(msg.sender, _maxDeadlineSeconds);
     }
 
     function setTransactionFee(uint _transactionFee) public onlyOwner {
@@ -36,17 +36,17 @@ contract Remittance is Pausable {
         emit LogTransactionFeeChanged(msg.sender, _transactionFee);
     }
 
-    function getDeadlineTimestamp(uint _days) private view returns(uint timestamp) {
-        require(maxDeadlineDays >= _days, "Deadline is too far in the future");
+    function getDeadlineTimestamp(uint _seconds) private view returns(uint timestamp) {
+        require(maxDeadlineSeconds >= _seconds, "Deadline is too far in the future");
         
-        return (maxDeadlineDays > 0) ? now + (_days * 1 days) : 0;
+        return (maxDeadlineSeconds > 0) ? now + _seconds : 0;
     }
 
     function createHash(bytes32 password, address recipient) public pure returns (bytes32 _passHash) {
         return keccak256(abi.encodePacked(password, recipient));
     }
 
-    function deposit(address _exchanger, bytes32 hashOfPasswordAndRecipient, uint daysUntilDeadline) 
+    function deposit(address _exchanger, bytes32 hashOfPasswordAndRecipient, uint secondsUntilDeadline)
         public
         onlyIfRunning
         payable {
@@ -58,7 +58,7 @@ contract Remittance is Pausable {
         paymentList[hashOfPasswordAndRecipient].payer = msg.sender;
         paymentList[hashOfPasswordAndRecipient].exchanger = _exchanger;
         paymentList[hashOfPasswordAndRecipient].balance = msg.value;
-        paymentList[hashOfPasswordAndRecipient].deadline = getDeadlineTimestamp(daysUntilDeadline);
+        paymentList[hashOfPasswordAndRecipient].deadline = getDeadlineTimestamp(secondsUntilDeadline);
         paymentList[hashOfPasswordAndRecipient].used = true; // this hash can't be used again
         emit LogDeposit(msg.sender, msg.value, _exchanger, hashOfPasswordAndRecipient);
     }
