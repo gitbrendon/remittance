@@ -12,7 +12,7 @@ contract Remittance is Pausable {
     mapping(bytes32 => Payment) paymentList;
     uint public maxDeadlineSeconds; // if this value is 0, deadline cannot be set by payer
     uint public transactionFee;
-    uint public contractBalance;
+    mapping(address => uint) public contractBalance;
 
     event LogMaxDeadlineChanged(address indexed changer, uint newMaxDeadlineSeconds);
     event LogTransactionFeeChanged(address indexed changer, uint newTransactionFee);
@@ -70,8 +70,8 @@ contract Remittance is Pausable {
         // take tx fee on withdrawal, unless amount is smaller than tx fee
         uint withdrawTxFee = (amount > transactionFee) ? transactionFee : 0;
         amount -= withdrawTxFee;
-        contractBalance += withdrawTxFee;
-        assert(contractBalance >= withdrawTxFee); // make sure contractBalance doesn't overflow
+        contractBalance[super.getOwner()] += withdrawTxFee;
+        assert(contractBalance[super.getOwner()] >= withdrawTxFee); // make sure contractBalance doesn't overflow
 
         paymentList[passHash].balance = 0;
         emit LogWithdrawal(recipient, msg.sender, password, amount, withdrawTxFee);
@@ -90,9 +90,11 @@ contract Remittance is Pausable {
         msg.sender.transfer(amount);
     }
 
-    function withdrawContractFunds() public onlyOwner {
-        uint amount = contractBalance;
-        contractBalance = 0;
+    function withdrawContractFunds() public {
+        require(contractBalance[msg.sender] > 0, "No funds to withdraw");
+
+        uint amount = contractBalance[msg.sender];
+        contractBalance[msg.sender] = 0;
         emit LogWithdrawContractFunds(msg.sender, amount);
         msg.sender.transfer(amount);
     }
