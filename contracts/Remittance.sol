@@ -8,6 +8,7 @@ contract Remittance is Pausable {
         address payer; 
         address exchanger;
         uint deadline;
+        uint txFee;
     }
     mapping(bytes32 => Payment) paymentList;
     uint public maxDeadlineSeconds; // if this value is 0, deadline cannot be set by payer
@@ -58,6 +59,8 @@ contract Remittance is Pausable {
         paymentList[hashOfPasswordAndRecipient].exchanger = _exchanger;
         paymentList[hashOfPasswordAndRecipient].balance = msg.value;
         paymentList[hashOfPasswordAndRecipient].deadline = getDeadlineTimestamp(secondsUntilDeadline);
+        // No tx fee applied if msg.value < txFee
+        paymentList[hashOfPasswordAndRecipient].txFee = (msg.value > transactionFee) ? transactionFee : 0;
         emit LogDeposit(msg.sender, msg.value, _exchanger, hashOfPasswordAndRecipient);
     }
 
@@ -67,14 +70,13 @@ contract Remittance is Pausable {
         require (paymentList[passHash].exchanger == msg.sender, "Transaction sender is not the specified exchanger");
         
         uint amount = paymentList[passHash].balance;
-        // take tx fee on withdrawal, unless amount is smaller than tx fee
-        uint withdrawTxFee = (amount > transactionFee) ? transactionFee : 0;
-        amount -= withdrawTxFee;
-        contractBalance[super.getOwner()] += withdrawTxFee;
-        assert(contractBalance[super.getOwner()] >= withdrawTxFee); // make sure contractBalance doesn't overflow
+        // take tx fee on withdrawal
+        amount -= paymentList[passHash].txFee;
+        contractBalance[super.getOwner()] += paymentList[passHash].txFee;
+        assert(contractBalance[super.getOwner()] >= paymentList[passHash].txFee); // make sure contractBalance doesn't overflow
 
         paymentList[passHash].balance = 0;
-        emit LogWithdrawal(recipient, msg.sender, password, amount, withdrawTxFee);
+        emit LogWithdrawal(recipient, msg.sender, password, amount, paymentList[passHash].txFee);
         msg.sender.transfer(amount);
     }
 
