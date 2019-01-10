@@ -42,8 +42,8 @@ contract Remittance is Pausable {
         return (maxDeadlineSeconds > 0) ? now + _seconds : 0;
     }
 
-    function createHash(bytes32 password, address recipient) public pure returns (bytes32 _passHash) {
-        return keccak256(abi.encodePacked(password, recipient));
+    function createHash(bytes32 password, address recipient) public view returns (bytes32 _passHash) {
+        return keccak256(abi.encodePacked(password, recipient, this)); // include contract address as salt
     }
 
     function deposit(address _exchanger, bytes32 hashOfPasswordAndRecipient, uint secondsUntilDeadline)
