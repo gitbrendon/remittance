@@ -1,8 +1,11 @@
 pragma solidity 0.5;
 
 import "./Pausable.sol";
+import "./SafeMath.sol";
 
 contract Remittance is Pausable {
+    using SafeMath for uint256;
+
     struct Payment {
         uint balance;
         address payer; 
@@ -72,8 +75,7 @@ contract Remittance is Pausable {
         uint amount = paymentList[passHash].balance;
         // take tx fee on withdrawal
         amount -= paymentList[passHash].txFee;
-        contractBalance[super.getOwner()] += paymentList[passHash].txFee;
-        assert(contractBalance[super.getOwner()] >= paymentList[passHash].txFee); // make sure contractBalance doesn't overflow
+        contractBalance[super.getOwner()] = contractBalance[super.getOwner()].add(paymentList[passHash].txFee);
 
         paymentList[passHash].balance = 0;
         emit LogWithdrawal(recipient, msg.sender, password, amount, paymentList[passHash].txFee);
