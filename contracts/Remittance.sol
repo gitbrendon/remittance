@@ -12,7 +12,7 @@ contract Remittance is Pausable {
         uint deadline;
     }
     mapping(bytes32 => Payment) paymentList;
-    uint public maxDeadlineSeconds; // if this value is 0, deadline cannot be set by payer
+    uint public maxDeadlineSeconds;
     uint public transactionFee;
     mapping(address => uint) public contractBalance;
 
@@ -20,12 +20,13 @@ contract Remittance is Pausable {
     event LogTransactionFeeChanged(address indexed changer, uint newTransactionFee);
     event LogWithdrawContractFunds(address indexed admin, uint amount);
     event LogAddToOwnerBalance(address indexed admin, uint txFee);
-    event LogDeposit(address indexed sender, uint amount, bytes32 passwordHash, uint transactionFee);
+    event LogDeposit(address indexed sender, uint amount, bytes32 passwordHash, uint transactionFee, uint deadline);
     event LogWithdrawal(address indexed exchanger, bytes32 password, uint amount);
     event LogClaimed(address indexed claimer, bytes32 passwordHash, uint amount);
 
     constructor() public {
         transactionFee = 3 finney; // 1,690,000 (gas) * 2 (gas price) = 3,380,000 gwe = 3.38 finney to deploy contract
+        maxDeadlineSeconds = 500 weeks; // initial max deadline is arbitrarily far in future
     }
 
     function setMaxDeadline(uint _maxDeadlineSeconds) public onlyOwner {
@@ -41,7 +42,7 @@ contract Remittance is Pausable {
     function getDeadlineTimestamp(uint _seconds) private view returns(uint timestamp) {
         require(maxDeadlineSeconds >= _seconds, "Deadline is too far in the future");
         
-        return (maxDeadlineSeconds > 0) ? now + _seconds : 0;
+        return now + _seconds;
     }
 
     function createHash(bytes32 password, address exchanger) public view returns (bytes32 _passHash) {
@@ -66,7 +67,7 @@ contract Remittance is Pausable {
         paymentList[hashOfPasswordAndExchanger].balance = amount;
         paymentList[hashOfPasswordAndExchanger].deadline = getDeadlineTimestamp(secondsUntilDeadline);
         
-        emit LogDeposit(msg.sender, amount, hashOfPasswordAndExchanger, txFee);
+        emit LogDeposit(msg.sender, amount, hashOfPasswordAndExchanger, txFee, paymentList[hashOfPasswordAndExchanger].deadline);
     }
 
     function withdraw(bytes32 password) public onlyIfRunning {
@@ -82,7 +83,6 @@ contract Remittance is Pausable {
     function claim(bytes32 _hash) public onlyIfRunning {
         require(paymentList[_hash].balance > 0, "No balance found for this recipient and password");
         require(paymentList[_hash].payer == msg.sender, "Only payment sender can claim funds");
-        require(paymentList[_hash].deadline > 0, "This payment does not have a deadline for recipient to withdraw funds");
         require(paymentList[_hash].deadline < now, "Deadline for recipient to withdraw funds has not yet passed");
 
         uint amount = paymentList[_hash].balance;
