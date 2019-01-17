@@ -8,8 +8,7 @@ contract Remittance is Pausable {
 
     struct Payment {
         uint balance;
-        address payer; 
-        address exchanger;
+        address payer;
         uint deadline;
         uint txFee;
     }
@@ -21,8 +20,8 @@ contract Remittance is Pausable {
     event LogMaxDeadlineChanged(address indexed changer, uint newMaxDeadlineSeconds);
     event LogTransactionFeeChanged(address indexed changer, uint newTransactionFee);
     event LogWithdrawContractFunds(address indexed admin, uint amount);
-    event LogDeposit(address indexed sender, uint amount, address exchanger, bytes32 passwordHash);
-    event LogWithdrawal(address indexed recipient, address indexed exchanger, bytes32 password, uint amount, uint transactionFee);
+    event LogDeposit(address indexed sender, uint amount, bytes32 passwordHash);
+    event LogWithdrawal(address indexed exchanger, bytes32 password, uint amount, uint transactionFee);
     event LogClaimed(address indexed claimer, bytes32 passwordHash, uint amount);
 
     constructor() public {
@@ -45,32 +44,29 @@ contract Remittance is Pausable {
         return (maxDeadlineSeconds > 0) ? now + _seconds : 0;
     }
 
-    function createHash(bytes32 password, address recipient) public view returns (bytes32 _passHash) {
-        return keccak256(abi.encodePacked(password, recipient, this)); // include contract address as salt
+    function createHash(bytes32 password, address exchanger) public view returns (bytes32 _passHash) {
+        return keccak256(abi.encodePacked(password, exchanger, this)); // include contract address as salt
     }
 
-    function deposit(address _exchanger, bytes32 hashOfPasswordAndRecipient, uint secondsUntilDeadline)
+    function deposit(bytes32 hashOfPasswordAndExchanger, uint secondsUntilDeadline)
         public
         onlyIfRunning
         payable {
 
         require(msg.value > 0, "Must include value to transfer");
-        require(_exchanger != address(0), "Exchanger address is missing");
-        require(paymentList[hashOfPasswordAndRecipient].exchanger == address(0), "This hash has already been used");
+        require(paymentList[hashOfPasswordAndExchanger].payer == address(0), "This hash has already been used");
         
-        paymentList[hashOfPasswordAndRecipient].payer = msg.sender;
-        paymentList[hashOfPasswordAndRecipient].exchanger = _exchanger;
-        paymentList[hashOfPasswordAndRecipient].balance = msg.value;
-        paymentList[hashOfPasswordAndRecipient].deadline = getDeadlineTimestamp(secondsUntilDeadline);
+        paymentList[hashOfPasswordAndExchanger].payer = msg.sender;
+        paymentList[hashOfPasswordAndExchanger].balance = msg.value;
+        paymentList[hashOfPasswordAndExchanger].deadline = getDeadlineTimestamp(secondsUntilDeadline);
         // No tx fee applied if msg.value < txFee
-        paymentList[hashOfPasswordAndRecipient].txFee = (msg.value > transactionFee) ? transactionFee : 0;
-        emit LogDeposit(msg.sender, msg.value, _exchanger, hashOfPasswordAndRecipient);
+        paymentList[hashOfPasswordAndExchanger].txFee = (msg.value > transactionFee) ? transactionFee : 0;
+        emit LogDeposit(msg.sender, msg.value, hashOfPasswordAndExchanger);
     }
 
-    function withdraw(bytes32 password, address recipient) public onlyIfRunning {
-        bytes32 passHash = createHash(password, recipient);
-        require (paymentList[passHash].balance > 0, "No balance found for this recipient and password");
-        require (paymentList[passHash].exchanger == msg.sender, "Transaction sender is not the specified exchanger");
+    function withdraw(bytes32 password) public onlyIfRunning {
+        bytes32 passHash = createHash(password, msg.sender);
+        require (paymentList[passHash].balance > 0, "No balance found for this exchanger and password");
         
         uint amount = paymentList[passHash].balance;
         // take tx fee on withdrawal
@@ -78,7 +74,7 @@ contract Remittance is Pausable {
         contractBalance[super.getOwner()] = contractBalance[super.getOwner()].add(paymentList[passHash].txFee);
 
         paymentList[passHash].balance = 0;
-        emit LogWithdrawal(recipient, msg.sender, password, amount, paymentList[passHash].txFee);
+        emit LogWithdrawal(msg.sender, password, amount, paymentList[passHash].txFee);
         msg.sender.transfer(amount);
     }
 
