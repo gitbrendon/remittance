@@ -10,7 +10,6 @@ contract Remittance is Pausable {
         uint balance;
         address payer;
         uint deadline;
-        uint txFee;
     }
     mapping(bytes32 => Payment) paymentList;
     uint public maxDeadlineSeconds; // if this value is 0, deadline cannot be set by payer
@@ -20,8 +19,9 @@ contract Remittance is Pausable {
     event LogMaxDeadlineChanged(address indexed changer, uint newMaxDeadlineSeconds);
     event LogTransactionFeeChanged(address indexed changer, uint newTransactionFee);
     event LogWithdrawContractFunds(address indexed admin, uint amount);
-    event LogDeposit(address indexed sender, uint amount, bytes32 passwordHash);
-    event LogWithdrawal(address indexed exchanger, bytes32 password, uint amount, uint transactionFee);
+    event LogAddToOwnerBalance(address indexed admin, uint txFee);
+    event LogDeposit(address indexed sender, uint amount, bytes32 passwordHash, uint transactionFee);
+    event LogWithdrawal(address indexed exchanger, bytes32 password, uint amount);
     event LogClaimed(address indexed claimer, bytes32 passwordHash, uint amount);
 
     constructor() public {
@@ -55,13 +55,18 @@ contract Remittance is Pausable {
 
         require(msg.value > 0, "Must include value to transfer");
         require(paymentList[hashOfPasswordAndExchanger].payer == address(0), "This hash has already been used");
+
+        // Take tx fee from payment (No tx fee applied if msg.value < txFee)
+        uint txFee = (msg.value > transactionFee) ? transactionFee : 0;
+        uint amount = msg.value - txFee;
+        contractBalance[super.getOwner()] = contractBalance[super.getOwner()].add(txFee); // add txFee to contract owner balance
+        emit LogAddToOwnerBalance(super.getOwner(), txFee);
         
         paymentList[hashOfPasswordAndExchanger].payer = msg.sender;
-        paymentList[hashOfPasswordAndExchanger].balance = msg.value;
+        paymentList[hashOfPasswordAndExchanger].balance = amount;
         paymentList[hashOfPasswordAndExchanger].deadline = getDeadlineTimestamp(secondsUntilDeadline);
-        // No tx fee applied if msg.value < txFee
-        paymentList[hashOfPasswordAndExchanger].txFee = (msg.value > transactionFee) ? transactionFee : 0;
-        emit LogDeposit(msg.sender, msg.value, hashOfPasswordAndExchanger);
+        
+        emit LogDeposit(msg.sender, amount, hashOfPasswordAndExchanger, txFee);
     }
 
     function withdraw(bytes32 password) public onlyIfRunning {
@@ -69,12 +74,8 @@ contract Remittance is Pausable {
         require (paymentList[passHash].balance > 0, "No balance found for this exchanger and password");
         
         uint amount = paymentList[passHash].balance;
-        // take tx fee on withdrawal
-        amount -= paymentList[passHash].txFee;
-        contractBalance[super.getOwner()] = contractBalance[super.getOwner()].add(paymentList[passHash].txFee);
-
         paymentList[passHash].balance = 0;
-        emit LogWithdrawal(msg.sender, password, amount, paymentList[passHash].txFee);
+        emit LogWithdrawal(msg.sender, password, amount);
         msg.sender.transfer(amount);
     }
 
