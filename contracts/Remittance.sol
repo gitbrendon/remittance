@@ -76,6 +76,7 @@ contract Remittance is Pausable {
         
         uint amount = paymentList[passHash].balance;
         paymentList[passHash].balance = 0;
+        paymentList[passHash].deadline = 0;
         emit LogWithdrawal(msg.sender, password, amount);
         msg.sender.transfer(amount);
     }
@@ -87,6 +88,7 @@ contract Remittance is Pausable {
 
         uint amount = paymentList[_hash].balance;
         paymentList[_hash].balance = 0;
+        paymentList[_hash].deadline = 0;
         emit LogClaimed(msg.sender, _hash, amount);
         msg.sender.transfer(amount);
     }
