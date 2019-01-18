@@ -59,15 +59,16 @@ contract Remittance is Pausable {
 
         // Take tx fee from payment (No tx fee applied if msg.value < txFee)
         uint txFee = (msg.value > transactionFee) ? transactionFee : 0;
-        uint amount = msg.value - txFee;
-        contractBalance[super.getOwner()] = contractBalance[super.getOwner()].add(txFee); // add txFee to contract owner balance
-        emit LogAddToOwnerBalance(super.getOwner(), txFee);
+        uint amount = msg.value.sub(txFee); // SafeMath subtraction
+        contractBalance[getOwner()] = contractBalance[getOwner()].add(txFee); // add txFee to contract owner balance
+        emit LogAddToOwnerBalance(getOwner(), txFee);
         
         paymentList[hashOfPasswordAndExchanger].payer = msg.sender;
         paymentList[hashOfPasswordAndExchanger].balance = amount;
-        paymentList[hashOfPasswordAndExchanger].deadline = getDeadlineTimestamp(secondsUntilDeadline);
+        uint deadline = getDeadlineTimestamp(secondsUntilDeadline);
+        paymentList[hashOfPasswordAndExchanger].deadline = deadline;
         
-        emit LogDeposit(msg.sender, amount, hashOfPasswordAndExchanger, txFee, paymentList[hashOfPasswordAndExchanger].deadline);
+        emit LogDeposit(msg.sender, amount, hashOfPasswordAndExchanger, txFee, deadline);
     }
 
     function withdraw(bytes32 password) public onlyIfRunning {
