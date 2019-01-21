@@ -1,48 +1,105 @@
 pragma solidity 0.5;
 
 import "./Pausable.sol";
+import "./SafeMath.sol";
 
 contract Remittance is Pausable {
-    uint private bobBalance;
-    address private exchanger;
-    bytes32 private passHash;
+    using SafeMath for uint256;
 
-    event LogDeposit(address sender, uint amount, address recipient, address exchanger, bytes32 passwordHash);
-    event LogWithdrawal(address recipient, address exchanger, uint amount);
+    struct Payment {
+        uint balance;
+        address payer;
+        uint deadline;
+    }
+    mapping(bytes32 => Payment) paymentList;
+    uint public maxDeadlineSeconds;
+    uint public transactionFee;
+    mapping(address => uint) public contractBalance;
+
+    event LogMaxDeadlineChanged(address indexed changer, uint newMaxDeadlineSeconds);
+    event LogTransactionFeeChanged(address indexed changer, uint newTransactionFee);
+    event LogWithdrawContractFunds(address indexed admin, uint amount);
+    event LogAddToOwnerBalance(address indexed admin, uint txFee);
+    event LogDeposit(address indexed sender, uint amount, bytes32 passwordHash, uint transactionFee, uint deadline);
+    event LogWithdrawal(address indexed exchanger, bytes32 password, uint amount);
+    event LogClaimed(address indexed claimer, bytes32 passwordHash, uint amount);
 
     constructor() public {
+        transactionFee = 3 finney; // 1,690,000 (gas) * 2 (gas price) = 3,380,000 gwe = 3.38 finney to deploy contract
+        maxDeadlineSeconds = 500 weeks; // initial max deadline is arbitrarily far in future
     }
 
-    function createHash(bytes32 pass1, bytes32 pass2) private pure returns (bytes32 _passHash) {
-        return keccak256(abi.encodePacked(pass1, pass2));
+    function setMaxDeadline(uint _maxDeadlineSeconds) public onlyOwner {
+        maxDeadlineSeconds = _maxDeadlineSeconds;
+        emit LogMaxDeadlineChanged(msg.sender, _maxDeadlineSeconds);
     }
 
-    function doHashesMatch(bytes32 recipientPass, bytes32 exchangerPass, bytes32 _passHash) private pure returns (bool matches) {
-        return (_passHash == createHash(recipientPass, exchangerPass));
+    function setTransactionFee(uint _transactionFee) public onlyOwner {
+        transactionFee = _transactionFee;
+        emit LogTransactionFeeChanged(msg.sender, _transactionFee);
     }
 
-    function deposit(address _recipient, address _exchanger, bytes32 hashOfTwoPasswords) 
-        public 
-        onlyOwner // remove for utility
+    function getDeadlineTimestamp(uint _seconds) private view returns(uint timestamp) {
+        require(maxDeadlineSeconds >= _seconds, "Deadline is too far in the future");
+        
+        return now + _seconds;
+    }
+
+    function createHash(bytes32 password, address exchanger) public view returns (bytes32 _passHash) {
+        return keccak256(abi.encodePacked(password, exchanger, this)); // include contract address as salt
+    }
+
+    function deposit(bytes32 hashOfPasswordAndExchanger, uint secondsUntilDeadline)
+        public
+        onlyIfRunning
         payable {
 
         require(msg.value > 0, "Must include value to transfer");
-        require(_recipient != address(0), "Recipient address is missing");
-        require(_exchanger != address(0), "Exchanger address is missing");
+        require(paymentList[hashOfPasswordAndExchanger].payer == address(0), "This hash has already been used");
+
+        // Take tx fee from payment (No tx fee applied if msg.value < txFee)
+        uint txFee = (msg.value > transactionFee) ? transactionFee : 0;
+        uint amount = msg.value.sub(txFee); // SafeMath subtraction
+        contractBalance[getOwner()] = contractBalance[getOwner()].add(txFee); // add txFee to contract owner balance
+        emit LogAddToOwnerBalance(getOwner(), txFee);
         
-        exchanger = _exchanger;
-        bobBalance = msg.value;
-        passHash = hashOfTwoPasswords;
-        emit LogDeposit(msg.sender, msg.value, _recipient, _exchanger, passHash);
+        paymentList[hashOfPasswordAndExchanger].payer = msg.sender;
+        paymentList[hashOfPasswordAndExchanger].balance = amount;
+        uint deadline = getDeadlineTimestamp(secondsUntilDeadline);
+        paymentList[hashOfPasswordAndExchanger].deadline = deadline;
+        
+        emit LogDeposit(msg.sender, amount, hashOfPasswordAndExchanger, txFee, deadline);
     }
 
-    function withdraw(address recipient, bytes32 password1, bytes32 password2) public {
-        require (msg.sender == exchanger, "Transaction sender is not the specified exchanger");
-        require (doHashesMatch(password1, password2, passHash), "Passwords do not match");
+    function withdraw(bytes32 password) public onlyIfRunning {
+        bytes32 passHash = createHash(password, msg.sender);
+        require (paymentList[passHash].balance > 0, "No balance found for this exchanger and password");
         
-        uint amount = bobBalance;
-        bobBalance = 0;
-        emit LogWithdrawal(recipient, msg.sender, amount);
+        uint amount = paymentList[passHash].balance;
+        paymentList[passHash].balance = 0;
+        paymentList[passHash].deadline = 0;
+        emit LogWithdrawal(msg.sender, password, amount);
+        msg.sender.transfer(amount);
+    }
+
+    function claim(bytes32 _hash) public onlyIfRunning {
+        require(paymentList[_hash].balance > 0, "No balance found for this recipient and password");
+        require(paymentList[_hash].payer == msg.sender, "Only payment sender can claim funds");
+        require(paymentList[_hash].deadline < now, "Deadline for recipient to withdraw funds has not yet passed");
+
+        uint amount = paymentList[_hash].balance;
+        paymentList[_hash].balance = 0;
+        paymentList[_hash].deadline = 0;
+        emit LogClaimed(msg.sender, _hash, amount);
+        msg.sender.transfer(amount);
+    }
+
+    function withdrawContractFunds() public {
+        require(contractBalance[msg.sender] > 0, "No funds to withdraw");
+
+        uint amount = contractBalance[msg.sender];
+        contractBalance[msg.sender] = 0;
+        emit LogWithdrawContractFunds(msg.sender, amount);
         msg.sender.transfer(amount);
     }
 }
